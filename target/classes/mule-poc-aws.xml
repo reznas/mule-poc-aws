@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:sqs="http://www.mulesoft.org/schema/mule/sqs" xmlns:sns="http://www.mulesoft.org/schema/mule/sns" xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking" xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns:mqtt="http://www.mulesoft.org/schema/mule/mqtt" xmlns:context="http://www.springframework.org/schema/context" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:spring="http://www.springframework.org/schema/beans" 
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-current.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd
+http://www.mulesoft.org/schema/mule/sns http://www.mulesoft.org/schema/mule/sns/current/mule-sns.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/sqs http://www.mulesoft.org/schema/mule/sqs/current/mule-sqs.xsd">
+    <context:property-placeholder location="dev.properties"/>
+    <sns:config name="Amazon_SNS_Configuration" accessKey="${aws.access}" secretKey="${aws.secret}" region="${aws.region}" testTopicArn="${aws.sns.topic.arn}" doc:name="Amazon SNS: Configuration"/>
+    <http:listener-config name="HTTP_Listener_Configuration" host="0.0.0.0" port="8081" doc:name="HTTP Listener Configuration"/>
+    <sqs:config name="Amazon_SQS_Configuration" accessKey="${aws.access}" secretKey="${aws.secret}" defaultQueueName="${aws.sqs.queue.name}" url="${aws.sqs.queue.url}" region="${aws.region}" roleARN="${aws.sqs.role.arn}" protocol="HTTPS" doc:name="Amazon SQS: Configuration"/>
+    <file:connector name="File" writeToDirectory="${file.out}" workDirectory="${file.work}" autoDelete="true" streaming="true" validateConnections="true" doc:name="File"/>
+    <flow name="mule-poc-awsSubmitFormFlow">
+        <http:listener config-ref="HTTP_Listener_Configuration" path="/*" allowedMethods="GET" doc:name="HTTP"/>
+        <http:static-resource-handler resourceBase="${app.path}/web" defaultFile="index.html" doc:name="HTTP Static Resource Handler"/>
+    </flow>
+    <flow name="mule-poc-mqttSubmitFormSNSPublishFlow">
+        <http:listener config-ref="HTTP_Listener_Configuration" path="/" doc:name="HTTP" allowedMethods="POST">
+            <http:response-builder statusCode="200"/>
+            <http:error-response-builder statusCode="500"/>
+        </http:listener>
+        <logger level="INFO" doc:name="Logger"/>
+        <sns:publish config-ref="Amazon_SNS_Configuration" doc:name="Amazon SNS">
+            <sns:publish topicArn="${aws.sns.topic.arn}" message="#[message.inboundAttachments.get('user_file')]" subject="Upload message"/>
+        </sns:publish>
+        <logger level="INFO" doc:name="Logger"/>
+    </flow>
+    <flow name="mule-poc-mqttSNSReceiveFlow">
+        <sqs:receive-messages config-ref="Amazon_SQS_Configuration" doc:name="Amazon SQS (Streaming)"/>
+        <file:outbound-endpoint path="${file.out}" connector-ref="File" responseTimeout="10000" mimeType="binary/octet-stream" doc:name="File"/>
+        <logger message="&quot;From Amazon SQS&quot; + #[payload]" level="INFO" doc:name="Logger"/>
+    </flow>
+</mule>
